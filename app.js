@@ -2,6 +2,7 @@ import express from 'express';
 import bodyParser from 'body-parser';
 import { keyAuthentication } from './middlewares/key.middlware.js';
 import { StatusCodes } from 'http-status-codes';
+import { AuthenticationService } from './utils/authentication.service.js';
 
 const app = express();
 const PORT = 4000;
@@ -35,24 +36,52 @@ app.post('/register', keyAuthentication, (req, res) => {
     if (Object.keys(newUser).length === 0) {
         return res
             .status(StatusCodes.BAD_REQUEST)
-            .json({ error: 'Invalid request body, Please provide name and email' });
+            .json({ Error: 'Invalid request body, Please provide name and email' });
     }
 
     for (let user of registeredUsers) {
         if (user.email === newUser.email) {
-            return res.status(StatusCodes.CONFLICT).json({ error: 'User already exists!!' });
+            return res.status(StatusCodes.CONFLICT).json({ Error: 'User already exists!!' });
         }
     }
-    registeredUsers = [
-        ...registeredUsers,
-        { id: registeredUsers.length + 1, name: newUser.name, email: newUser.email },
-    ];
-    console.log(registeredUsers);
+    // Check if user with same email exists
+    // const existingUser = registeredUsers.find((user) => user.email === newUser.email);
+    // if (existingUser) {
+    //     return res.status(StatusCodes.CONFLICT).json({ Error: 'User already exists' });
+    // }
 
-    return res.status(StatusCodes.CREATED).json({ message: 'User created successfully !!' });
+    const user = { id: registeredUsers.length + 1, name: newUser.name, email: newUser.email };
+    registeredUsers = [...registeredUsers, { ...user }];
+
+    const token = AuthenticationService.generateToken(user);
+
+    console.log({ registeredUsers, token });
+    return res.status(StatusCodes.CREATED).json({ Message: 'User created successfully !!', token });
 });
 
+app.get('/login', (req, res) => {
+    const userProfile = req.body;
 
+    let registeredUser;
+    let isExistingUser = false
+    for (let user of registeredUsers) {
+        if (user.email !== userProfile.email) {
+            continue
+        }
+        isExistingUser = true
+        registeredUser = user
+        break;
+    }
+
+    if(!isExistingUser) {
+        return res.status(StatusCodes.NOT_FOUND).json({Error: "User is not registered !!"})
+    }
+
+    const token = AuthenticationService.generateToken(registeredUser);
+    return res.status(StatusCodes.OK).json({ Message: 'User logged-in successfully !!', token });
+
+
+});
 
 // Create
 app.post('/items', (req, res) => {
