@@ -1,5 +1,7 @@
 import express from 'express';
-import bodyParser from 'body-parser'
+import bodyParser from 'body-parser';
+import { keyAuthentication } from './middlewares/key.middlware.js';
+import { StatusCodes } from 'http-status-codes';
 
 const app = express();
 const PORT = 4000;
@@ -16,11 +18,42 @@ const items = [
         id: 2,
         title: 'title2',
         description: 'desc2',
-    }
+    },
 ];
-app.register('/register',  (req,res)=>{
 
-})
+let registeredUsers = [
+    {
+        id: 1,
+        name: 'tvuser',
+        email: 'tvuser101@gmail.com',
+    },
+];
+
+app.post('/register', keyAuthentication, (req, res) => {
+    const newUser = req.body;
+
+    if (Object.keys(newUser).length === 0) {
+        return res
+            .status(StatusCodes.BAD_REQUEST)
+            .json({ error: 'Invalid request body, Please provide name and email' });
+    }
+
+    for (let user of registeredUsers) {
+        if (user.email === newUser.email) {
+            return res.status(StatusCodes.CONFLICT).json({ error: 'User already exists!!' });
+        }
+    }
+    registeredUsers = [
+        ...registeredUsers,
+        { id: registeredUsers.length + 1, name: newUser.name, email: newUser.email },
+    ];
+    console.log(registeredUsers);
+
+    return res.status(StatusCodes.CREATED).json({ message: 'User created successfully !!' });
+});
+
+
+
 // Create
 app.post('/items', (req, res) => {
     const newItem = req.body;
