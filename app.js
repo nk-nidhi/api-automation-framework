@@ -2,22 +2,24 @@ import express from 'express';
 import bodyParser from 'body-parser';
 import { keyAuthentication } from './middlewares/key.middlware.js';
 import { StatusCodes } from 'http-status-codes';
-import { AuthenticationService } from './utils/authentication.service.js';
-import { CypherService } from './utils/cypher.service.js';
+import { TokenManager } from './utils/token.manager.js';
+import { CypherManager } from './utils/cypher.manager.js';
+import { tokenAuthentication } from './middlewares/auth.middleware.js';
+import { v4 as uniqueId } from 'uuid';
 
 const app = express();
 const PORT = 4000;
 
 app.use(bodyParser.json());
 
-const items = [
+const actionables = [
     {
-        id: 1,
+        id: uniqueId(),
         title: 'title1',
         description: 'desc1',
     },
     {
-        id: 2,
+        id: uniqueId(),
         title: 'title2',
         description: 'desc2',
     },
@@ -28,31 +30,26 @@ let registeredUsers = [
         id: 1,
         name: 'tvuser',
         email: 'tvuser101@gmail.com',
-        password: 'tv101',
+        password: '$2b$10$rGuXFY6RIFC6l6dFP8E1nej5w.Tj80OKUl2ntKLre5rc/yWzzCJC2', // tv101
     },
 ];
 
 app.post('/register', keyAuthentication, async (req, res) => {
     const newUser = req.body;
 
-    if (Object.keys(newUser).length === 0) {
+    if (!newUser.name || !newUser.email || !newUser.password || Object.keys(newUser).length === 0) {
         return res
             .status(StatusCodes.BAD_REQUEST)
-            .json({ Error: 'Invalid request body, Please provide name and email' });
+            .json({ error: 'Invalid request body, Please prvide name, email and password' });
     }
 
-    for (let user of registeredUsers) {
-        if (user.email === newUser.email) {
-            return res.status(StatusCodes.CONFLICT).json({ Error: 'User already exists!!' });
-        }
+    const existingUser = registeredUsers.find((user) => user.email === newUser.email);
+    if (existingUser) {
+        return res.status(StatusCodes.CONFLICT).json({ error: 'User already exists' });
     }
-    // Check if user with same email exists
-    // const existingUser = registeredUsers.find((user) => user.email === newUser.email);
-    // if (existingUser) {
-    //     return res.status(StatusCodes.CONFLICT).json({ Error: 'User already exists' });
-    // }
 
-    const encryptedPassword = await CypherService.encrypt(newUser.password);
+    const encryptedPassword = await CypherManager.encrypt(newUser.password);
+
     console.log('encryptedPassword = ', encryptedPassword);
     const user = {
         id: registeredUsers.length + 1,
@@ -62,58 +59,113 @@ app.post('/register', keyAuthentication, async (req, res) => {
     };
 
     registeredUsers = [...registeredUsers, { ...user }];
-    const token = AuthenticationService.generateToken(user);
+    const token = TokenManager.generateToken(user);
 
     console.log({ registeredUsers, token });
-    return res.status(StatusCodes.CREATED).json({ Message: 'User created successfully !!', token });
+    return res.status(StatusCodes.CREATED).json({ message: 'User created successfully !!', token });
 });
 
 app.get('/login', async (req, res) => {
     const userProfile = req.body;
 
     if (!userProfile.email || !userProfile.password) {
-        return res.status(StatusCodes.BAD_REQUEST).json({ Error: 'Invalid request body' });
+        return res
+            .status(StatusCodes.BAD_REQUEST)
+            .json({ error: 'Invalid request body, Please provide email and password' });
     }
-    let registeredUser;
-    let isExistingUser = false;
-    
+
+    let [registeredUser, isRegisteredUser] = [null, false];
+
     for (let user of registeredUsers) {
         if (user.email !== userProfile.email) {
             continue;
         }
-        const checkPassed = await CypherService.decrypt(userProfile.password, user.password);
-        if (!checkPassed) return res.status(StatusCodes.BAD_REQUEST).json({ Error: 'Incorrecr credential' });
-        isExistingUser = true;
+        const checkPassed = await CypherManager.decrypt(userProfile.password, user.password);
+        if (!checkPassed) return res.status(StatusCodes.BAD_REQUEST).json({ error: 'Incorrect credential' });
+        isRegisteredUser = true;
         registeredUser = user;
         break;
     }
 
-    if (!isExistingUser) {
-        return res.status(StatusCodes.NOT_FOUND).json({ Error: 'User is not registered !!' });
+    if (!isRegisteredUser) {
+        return res.status(StatusCodes.NOT_FOUND).json({ error: 'User is not registered !!' });
     }
-    const token = AuthenticationService.generateToken(registeredUser);
-    return res.status(StatusCodes.OK).json({ Message: 'User logged-in successfully !!', token });
+    const token = TokenManager.generateToken(registeredUser);
+    return res.status(StatusCodes.OK).json({ message: 'User logged-in successfully !!', token });
 });
 
 // Create
-app.post('/items', (req, res) => {
+app.post('/action-items/add', tokenAuthentication, (req, res) => {
+    const user = req.user;
     const newItem = req.body;
-    items.push(newItem);
-    res.status(201).json(newItem);
+
+    if (!newItem.title || !newItem.description) {
+        return res
+            .status(StatusCodes.BAD_REQUEST)
+            .json({ error: 'Invalid request body, Please provide title and description' });
+    }
+    const newItemToBeCreated = { id: uniqueId(), ...newItem };
+
+    actionables.push(newItemToBeCreated);
+    res.status(201).json({ user: user.name, item: newItemToBeCreated });
 });
 
 // Read
-app.get('/items', (req, res) => {
-    res.json(items);
+app.get('/action-items/retrieve', (req, res) => {
+    res.json(actionables);
+});
+
+// Update action
+app.put('/action-items/update/:id', tokenAuthentication, (req, res) => {
+    const actionId = req.params.id;
+    const actionUpdates = req.body;
+    const user = req.user;
+
+    if (!actionUpdates.title || !actionUpdates.description) {
+        return res
+            .status(StatusCodes.BAD_REQUEST)
+            .json({ error: 'Invalid request body, Please provide title and description' });
+    }
+
+    const actionIndexToBeUpdated = actionables.findIndex((action) => action.id === actionId);
+
+    if (actionIndexToBeUpdated === -1) {
+        return res.status(StatusCodes.NOT_FOUND).json({ error: 'Action Item not found !!' });
+    }
+
+    actionables[actionIndexToBeUpdated].title = actionUpdates.title;
+    actionables[actionIndexToBeUpdated].description = actionUpdates.description;
+
+    return res.status(StatusCodes.OK).json({
+        message: 'Action details updated successfully !!',
+        user: user.name,
+        updated_action: actionables[actionIndexToBeUpdated],
+    });
+});
+
+app.delete('/action-items/delete/:id', tokenAuthentication, (req, res) => {
+    const actionId = req.params.id;
+    const user = req.user;
+
+    const actionItemIndex = actionables.findIndex((actionItem) => actionItem.id === actionId);
+
+    if (actionItemIndex === -1) {
+        return res.status(StatusCodes.NOT_FOUND).json({ error: 'Action Item not found !!' });
+    }
+
+    const deletedActionItem = actionables.splice(actionItemIndex, 1);
+    return res
+        .status(StatusCodes.OK)
+        .json({ message: 'action item deleted successfully !!', user: user.name, deleted_item: deletedActionItem });
 });
 
 // Update
-app.put('/items/:id', (req, res) => {
+app.put('/items/index/:id', (req, res) => {
     const itemId = parseInt(req.params.id); // 1
     const updatedItem = req.body; //
 
-    if (itemId > 0 && itemId < items.length) {
-        items[itemId] = updatedItem;
+    if (itemId > 0 && itemId < actionables.length) {
+        actionables[itemId] = updatedItem;
         res.json(updatedItem);
     } else {
         res.status(404).json({ message: 'Item not found' });
@@ -121,15 +173,19 @@ app.put('/items/:id', (req, res) => {
 });
 
 // Delete
-app.delete('/items/:id', (req, res) => {
+app.delete('/items/index/:id', (req, res) => {
     const itemId = req.params.id;
 
-    if (itemId > 0 && itemId < items.length) {
-        const deletedItem = items.splice(itemId, 1);
+    if (itemId > 0 && itemId < actionables.length) {
+        const deletedItem = actionables.splice(itemId, 1);
         res.json(deletedItem[0]);
     } else {
         res.status(404).json({ message: 'Item not found' });
     }
+});
+
+app.use((req, res) => {
+    res.status(StatusCodes.NOT_FOUND).json({ error: 'endpoint not found !!' });
 });
 
 app.listen(PORT, () => {
