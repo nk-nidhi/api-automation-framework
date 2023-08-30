@@ -65,7 +65,7 @@ app.post('/register', keyAuthentication, async (req, res) => {
     return res.status(StatusCodes.CREATED).json({ message: 'User created successfully !!', token });
 });
 
-app.get('/login', async (req, res) => {
+app.post('/login', async (req, res) => {
     const userProfile = req.body;
 
     if (!userProfile.email || !userProfile.password) {
