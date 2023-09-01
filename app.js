@@ -50,7 +50,6 @@ app.post('/register', keyAuthentication, async (req, res) => {
 
     const encryptedPassword = await CypherManager.encrypt(newUser.password);
 
-    console.log('encryptedPassword = ', encryptedPassword);
     const user = {
         id: registeredUsers.length + 1,
         name: newUser.name,
@@ -61,7 +60,6 @@ app.post('/register', keyAuthentication, async (req, res) => {
     registeredUsers = [...registeredUsers, { ...user }];
     const token = TokenManager.generateToken(user);
 
-    console.log({ registeredUsers, token });
     return res.status(StatusCodes.CREATED).json({ message: 'User created successfully !!', token });
 });
 
@@ -156,32 +154,7 @@ app.delete('/action-items/delete/:id', tokenAuthentication, (req, res) => {
     const deletedActionItem = actionables.splice(actionItemIndex, 1);
     return res
         .status(StatusCodes.OK)
-        .json({ message: 'action item deleted successfully !!', user: user.name, deleted_item: deletedActionItem });
-});
-
-// Update
-app.put('/items/index/:id', (req, res) => {
-    const itemId = parseInt(req.params.id); // 1
-    const updatedItem = req.body; //
-
-    if (itemId > 0 && itemId < actionables.length) {
-        actionables[itemId] = updatedItem;
-        res.json(updatedItem);
-    } else {
-        res.status(404).json({ message: 'Item not found' });
-    }
-});
-
-// Delete
-app.delete('/items/index/:id', (req, res) => {
-    const itemId = req.params.id;
-
-    if (itemId > 0 && itemId < actionables.length) {
-        const deletedItem = actionables.splice(itemId, 1);
-        res.json(deletedItem[0]);
-    } else {
-        res.status(404).json({ message: 'Item not found' });
-    }
+        .json({ message: 'Action item deleted successfully !!', user: user.name, deleted_item: deletedActionItem });
 });
 
 app.use((req, res) => {
